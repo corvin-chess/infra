@@ -1,0 +1,82 @@
+# CV-120: one-command local/self-host stack.
+# Start: docker compose up --build -d
+# Server and web images are interim stubs until those repos publish real images.
+
+name: corvin
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-corvin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-corvin_dev_only_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-corvin}
+    ports:
+      # Localhost-only by default; override host bind in .env for remote self-host.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-corvin} -d ${POSTGRES_DB:-corvin}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  server:
+    build:
+      context: ./docker/server
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Placeholders for the future Axum process (CV-130+). Stub only serves /health.
+      DATABASE_URL: postgres://${POSTGRES_USER:-corvin}:${POSTGRES_PASSWORD:-corvin_dev_only_change_me}@postgres:5432/${POSTGRES_DB:-corvin}
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "127.0.0.1:${SERVER_PORT:-3000}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  web:
+    build:
+      context: ./docker/web
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8080}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  postgres_data:
+  redis_data:

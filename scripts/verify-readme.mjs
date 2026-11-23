@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * CV-027: assert infra README matches README_STYLE repository template rules.
+ * CV-027/CV-120: assert infra README matches README_STYLE repository template rules.
  */
 import { readFileSync, existsSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
@@ -13,6 +13,7 @@ const readmePath = join(repoRoot, "README.md")
 const licensePath = join(repoRoot, "LICENSE")
 const stylePath = join(workspaceRoot, "README_STYLE.md")
 const reposPath = join(workspaceRoot, "REPOS.md")
+const composePath = join(repoRoot, "compose.yaml")
 
 const REPO = "infra"
 const SKILL = "docker"
@@ -21,9 +22,10 @@ const CLOSING =
   "One compose command should stand up the whole board, and every backup must prove it can return."
 
 const PLANNED_AREAS =
-  /^(Docker Compose stack|Observability profile|Backup and restore|Load tests|Implementation)$/i
+  /^(Observability profile|Backup and restore|Load tests|Implementation)$/i
 
-const BUILT_AREAS = /^(README|LICENSE|CI verify gate)$/i
+const BUILT_AREAS =
+  /^(README|LICENSE|CI verify gate|Docker Compose stack)$/i
 
 const fail = (msg) => {
   console.error(`FAIL: ${msg}`)
@@ -159,6 +161,7 @@ if (!statusTableMatch) {
   let sawReadmeBuilt = false
   let sawLicenseBuilt = false
   let sawCiBuilt = false
+  let sawComposeBuilt = false
   let sawImplPlanned = false
   for (const [, areaRaw, stateRaw] of stateCells) {
     const area = areaRaw.trim()
@@ -178,12 +181,15 @@ if (!statusTableMatch) {
     if (/^CI verify gate$/i.test(area) && /^Built$/i.test(state)) {
       sawCiBuilt = true
     }
+    if (/^Docker Compose stack$/i.test(area) && /^Built$/i.test(state)) {
+      sawComposeBuilt = true
+    }
     if (BUILT_AREAS.test(area) && !/^Built$/i.test(state)) {
       fail(`STATUS row "${area}" must be Built; got "${state}"`)
     }
     if (PLANNED_AREAS.test(area) && !/^Planned$/i.test(state)) {
       fail(
-        `STATUS row "${area}" must stay Planned until compose/ops land; got "${state}"`
+        `STATUS row "${area}" must stay Planned until that area lands; got "${state}"`
       )
     }
     if (/^Implementation$/i.test(area) && /^Planned$/i.test(state)) {
@@ -193,20 +199,41 @@ if (!statusTableMatch) {
   if (!sawReadmeBuilt) fail('STATUS must include "| README | Built |"')
   if (!sawLicenseBuilt) fail('STATUS must include "| LICENSE | Built |"')
   if (!sawCiBuilt) fail('STATUS must include "| CI verify gate | Built |"')
+  if (!sawComposeBuilt) {
+    fail('STATUS must include "| Docker Compose stack | Built |"')
+  }
   if (!sawImplPlanned) fail('STATUS must include "| Implementation | Planned |"')
   if (!process.exitCode) ok("STATUS rows use Planned/Built correctly")
 }
 
+if (!existsSync(composePath)) {
+  fail("compose.yaml missing; OVERVIEW must describe a real Compose stack")
+} else {
+  ok("compose.yaml present for Built Compose STATUS")
+}
+
 if (
-  !/No Compose files, observability stack, backup scripts, or load-test harness are in this repository yet/i.test(
+  /No Compose files, observability stack, backup scripts, or load-test harness are in this repository yet/i.test(
     readme
   )
 ) {
   fail(
-    'OVERVIEW must state "No Compose files, observability stack, backup scripts, or load-test harness are in this repository yet"'
+    "OVERVIEW must not claim Compose files are absent now that compose.yaml exists"
   )
 } else {
-  ok("OVERVIEW states no compose/ops artifacts yet")
+  ok("OVERVIEW no longer claims Compose files are absent")
+}
+
+if (!/interim|stub|placeholder|stand-?in/i.test(readme)) {
+  fail("OVERVIEW/GETTING STARTED must disclose interim server/web stubs")
+} else {
+  ok("interim server/web stubs disclosed")
+}
+
+if (!/docker compose up --build -d/i.test(readme)) {
+  fail('GETTING STARTED must document "docker compose up --build -d"')
+} else {
+  ok("documented start command present")
 }
 
 if (!/self-host/i.test(readme) || !/observability/i.test(readme)) {
@@ -225,7 +252,7 @@ if (
   !readme.includes("https://github.com/corvin-chess/server") ||
   !readme.includes("https://github.com/corvin-chess/web")
 ) {
-  fail("README must link server and web as image sources once they exist")
+  fail("README must link server and web")
 } else {
   ok("server and web linked")
 }
@@ -338,5 +365,5 @@ for (const bit of requiredHeaderBits) {
 if (!process.exitCode) ok("header, footer, license heading present")
 
 if (!process.exitCode) {
-  console.log("All CV-027 infra README checks passed.")
+  console.log("All CV-120 infra README checks passed.")
 }
