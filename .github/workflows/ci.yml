@@ -59,13 +59,13 @@ jobs:
       - name: Wait for healthy services
         run: |
           set -e
-          # Match "(healthy)" only — "unhealthy" must not pass.
+          # Line-based grep: require literal "(healthy)" so "(unhealthy)" cannot pass.
           for i in $(seq 1 90); do
             ps="$(docker compose ps)"
-            if echo "$ps" | grep -qE 'postgres[^\n]*\(healthy\)' \
-              && echo "$ps" | grep -qE 'redis[^\n]*\(healthy\)' \
-              && echo "$ps" | grep -qE 'server[^\n]*\(healthy\)' \
-              && echo "$ps" | grep -qE 'web[^\n]*\(healthy\)'; then
+            if echo "$ps" | grep -qE 'postgres .* \(healthy\)' \
+              && echo "$ps" | grep -qE 'redis .* \(healthy\)' \
+              && echo "$ps" | grep -qE 'server .* \(healthy\)' \
+              && echo "$ps" | grep -qE 'web .* \(healthy\)'; then
               echo "all services healthy"
               docker compose ps
               exit 0
