@@ -1,6 +1,7 @@
-# CV-120: one-command local/self-host stack.
-# Start: docker compose up --build -d
-# Server and web images are interim stubs until those repos publish real images.
+# CV-199: one-command play stack (Postgres, Redis, real server, real web).
+# Start from a workspace that contains sibling server/ and web/ checkouts, or set
+# SERVER_BUILD_CONTEXT / WEB_BUILD_CONTEXT to those paths:
+#   docker compose up --build -d
 
 name: corvin
 
@@ -13,7 +14,6 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-corvin_dev_only_change_me}
       POSTGRES_DB: ${POSTGRES_DB:-corvin}
     ports:
-      # Localhost-only by default; override host bind in .env for remote self-host.
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -41,7 +41,8 @@ services:
 
   server:
     build:
-      context: ./docker/server
+      context: ${SERVER_BUILD_CONTEXT:-../server}
+      dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
       postgres:
@@ -49,21 +50,28 @@ services:
       redis:
         condition: service_healthy
     environment:
-      # Placeholders for the future Axum process (CV-130+). Stub only serves /health.
       DATABASE_URL: postgres://${POSTGRES_USER:-corvin}:${POSTGRES_PASSWORD:-corvin_dev_only_change_me}@postgres:5432/${POSTGRES_DB:-corvin}
       REDIS_URL: redis://redis:6379/0
+      HOST: 0.0.0.0
+      PORT: "3000"
+      CORVIN_ENV: ${CORVIN_ENV:-development}
+      CORVIN_RP_ID: ${CORVIN_RP_ID:-localhost}
+      # Browser origin is the web container (nginx on :8080), not the Axum port.
+      CORVIN_RP_ORIGIN: ${CORVIN_RP_ORIGIN:-http://localhost:8080}
+      CORVIN_OTP_PEPPER: ${CORVIN_OTP_PEPPER:-corvin_dev_otp_pepper_change_me!!}
     ports:
-      - "127.0.0.1:${SERVER_PORT:-3000}:80"
+      - "127.0.0.1:${SERVER_PORT:-3000}:3000"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
       interval: 5s
       timeout: 3s
-      retries: 10
-      start_period: 5s
+      retries: 12
+      start_period: 40s
 
   web:
     build:
-      context: ./docker/web
+      context: ${WEB_BUILD_CONTEXT:-../web}
+      dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
       server:
@@ -75,7 +83,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-      start_period: 5s
+      start_period: 10s
 
 volumes:
   postgres_data:

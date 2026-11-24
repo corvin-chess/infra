@@ -20,37 +20,92 @@ jobs:
         run: node scripts/verify-readme.mjs
       - name: Verify Compose files
         run: node scripts/verify-compose.mjs
+      - name: Verify M1 exit shape
+        run: node scripts/verify-m1-exit.mjs
 
+  # Single Docker job: smoke curls + M1 rated Playwright (avoids two full Rust image builds).
   compose-smoke:
     runs-on: ubuntu-latest
     needs: verify
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: corvin-chess/server
+          path: _server
+      - uses: actions/checkout@v4
+        with:
+          repository: corvin-chess/web
+          path: _web
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: _web/package-lock.json
+      - name: Install psql + redis-cli
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client redis-tools
+      - name: Install web deps + Playwright
+        working-directory: _web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
       - name: Start Compose stack
+        env:
+          SERVER_BUILD_CONTEXT: ./_server
+          WEB_BUILD_CONTEXT: ./_web
+          CORVIN_RP_ORIGIN: http://localhost:8080
         run: docker compose up --build -d
       - name: Wait for healthy services
         run: |
           set -e
-          for i in $(seq 1 60); do
-            if docker compose ps | grep -qE 'postgres.*healthy' \
-              && docker compose ps | grep -qE 'redis.*healthy' \
-              && docker compose ps | grep -qE 'server.*healthy' \
-              && docker compose ps | grep -qE 'web.*healthy'; then
+          # Line-based grep: require literal "(healthy)" so "(unhealthy)" cannot pass.
+          for i in $(seq 1 90); do
+            ps="$(docker compose ps)"
+            if echo "$ps" | grep -qE 'postgres .* \(healthy\)' \
+              && echo "$ps" | grep -qE 'redis .* \(healthy\)' \
+              && echo "$ps" | grep -qE 'server .* \(healthy\)' \
+              && echo "$ps" | grep -qE 'web .* \(healthy\)'; then
               echo "all services healthy"
               docker compose ps
               exit 0
             fi
-            sleep 2
+            sleep 5
           done
           echo "timed out waiting for healthy services"
           docker compose ps
           docker compose logs
           exit 1
-      - name: Curl server health and web stub
+      - name: Curl server health and web
         run: |
           set -e
           curl -sf "http://127.0.0.1:3000/health" | grep -q ok
           curl -sf "http://127.0.0.1:8080/" | grep -qi Corvin
+          curl -sf "http://127.0.0.1:8080/play" | grep -qi Corvin
+      - name: Seed e2e sessions
+        env:
+          DATABASE_URL: postgres://corvin:corvin_dev_only_change_me@127.0.0.1:5432/corvin
+          CORVIN_E2E_SEED: "1"
+          CORVIN_ENV: development
+        working-directory: _web
+        run: node scripts/e2e-seed.mjs
+      - name: Playwright rated game on Compose
+        working-directory: _web
+        env:
+          CORVIN_E2E: "1"
+          CORVIN_E2E_ORIGIN: http://localhost:8080
+          CORVIN_E2E_MANAGED_WEBSERVER: "1"
+          DATABASE_URL: postgres://corvin:corvin_dev_only_change_me@127.0.0.1:5432/corvin
+          REDIS_URL: redis://127.0.0.1:6379/0
+          CI: "true"
+        run: npx playwright test e2e/two-browser.spec.ts -g "rated blitz"
+      - name: Assert ratings stored
+        env:
+          DATABASE_URL: postgres://corvin:corvin_dev_only_change_me@127.0.0.1:5432/corvin
+        run: node scripts/assert-ratings.mjs
+      - name: Compose logs on failure
+        if: failure()
+        run: docker compose logs
       - name: Tear down
         if: always()
         run: docker compose down -v

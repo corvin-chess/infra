@@ -25,7 +25,7 @@ const PLANNED_AREAS =
   /^(Observability profile|Backup and restore|Load tests|Implementation)$/i
 
 const BUILT_AREAS =
-  /^(README|LICENSE|CI verify gate|Docker Compose stack)$/i
+  /^(README|LICENSE|CI verify gate|Docker Compose stack|M1 play stack)$/i
 
 const fail = (msg) => {
   console.error(`FAIL: ${msg}`)
@@ -162,6 +162,7 @@ if (!statusTableMatch) {
   let sawLicenseBuilt = false
   let sawCiBuilt = false
   let sawComposeBuilt = false
+  let sawM1Built = false
   let sawImplPlanned = false
   for (const [, areaRaw, stateRaw] of stateCells) {
     const area = areaRaw.trim()
@@ -184,6 +185,9 @@ if (!statusTableMatch) {
     if (/^Docker Compose stack$/i.test(area) && /^Built$/i.test(state)) {
       sawComposeBuilt = true
     }
+    if (/^M1 play stack$/i.test(area) && /^Built$/i.test(state)) {
+      sawM1Built = true
+    }
     if (BUILT_AREAS.test(area) && !/^Built$/i.test(state)) {
       fail(`STATUS row "${area}" must be Built; got "${state}"`)
     }
@@ -202,6 +206,7 @@ if (!statusTableMatch) {
   if (!sawComposeBuilt) {
     fail('STATUS must include "| Docker Compose stack | Built |"')
   }
+  if (!sawM1Built) fail('STATUS must include "| M1 play stack | Built |"')
   if (!sawImplPlanned) fail('STATUS must include "| Implementation | Planned |"')
   if (!process.exitCode) ok("STATUS rows use Planned/Built correctly")
 }
@@ -224,10 +229,15 @@ if (
   ok("OVERVIEW no longer claims Compose files are absent")
 }
 
-if (!/interim|stub|placeholder|stand-?in/i.test(readme)) {
-  fail("OVERVIEW/GETTING STARTED must disclose interim server/web stubs")
+if (/interim stub|placeholder|stand-?in/i.test(readme)) {
+  fail("README must not claim interim server/web stubs after CV-199")
 } else {
-  ok("interim server/web stubs disclosed")
+  ok("README describes real server/web images")
+}
+if (!/SERVER_BUILD_CONTEXT|sibling/i.test(readme)) {
+  fail("README must document sibling SERVER_BUILD_CONTEXT / WEB_BUILD_CONTEXT")
+} else {
+  ok("README documents sibling build contexts")
 }
 
 if (!/docker compose up --build -d/i.test(readme)) {
