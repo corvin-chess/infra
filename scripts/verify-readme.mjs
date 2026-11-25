@@ -22,10 +22,10 @@ const CLOSING =
   "One compose command should stand up the whole board, and every backup must prove it can return."
 
 const PLANNED_AREAS =
-  /^(Backup and restore|Load tests|Implementation)$/i
+  /^(Load tests|Implementation)$/i
 
 const BUILT_AREAS =
-  /^(README|LICENSE|CI verify gate|Docker Compose stack|M1 play stack|Observability profile)$/i
+  /^(README|LICENSE|CI verify gate|Docker Compose stack|M1 play stack|Observability profile|Backup and restore)$/i
 
 const fail = (msg) => {
   console.error(`FAIL: ${msg}`)
@@ -164,6 +164,7 @@ if (!statusTableMatch) {
   let sawComposeBuilt = false
   let sawM1Built = false
   let sawObsBuilt = false
+  let sawBackupBuilt = false
   let sawImplPlanned = false
   for (const [, areaRaw, stateRaw] of stateCells) {
     const area = areaRaw.trim()
@@ -192,6 +193,9 @@ if (!statusTableMatch) {
     if (/^Observability profile$/i.test(area) && /^Built$/i.test(state)) {
       sawObsBuilt = true
     }
+    if (/^Backup and restore$/i.test(area) && /^Built$/i.test(state)) {
+      sawBackupBuilt = true
+    }
     if (BUILT_AREAS.test(area) && !/^Built$/i.test(state)) {
       fail(`STATUS row "${area}" must be Built; got "${state}"`)
     }
@@ -213,6 +217,9 @@ if (!statusTableMatch) {
   if (!sawM1Built) fail('STATUS must include "| M1 play stack | Built |"')
   if (!sawObsBuilt) {
     fail('STATUS must include "| Observability profile | Built |"')
+  }
+  if (!sawBackupBuilt) {
+    fail('STATUS must include "| Backup and restore | Built |"')
   }
   if (!sawImplPlanned) fail('STATUS must include "| Implementation | Planned |"')
   if (!process.exitCode) ok("STATUS rows use Planned/Built correctly")

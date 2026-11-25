@@ -2,3 +2,7 @@
 *.pem
 *.key
 .DS_Store
+backups/
+*.dump
+*.rdb
+*.aof

@@ -22,8 +22,77 @@ jobs:
         run: node scripts/verify-compose.mjs
       - name: Verify observability profile
         run: node scripts/verify-observability.mjs
+      - name: Verify backup and restore docs
+        run: node scripts/verify-backup.mjs
       - name: Verify M1 exit shape
         run: node scripts/verify-m1-exit.mjs
+
+  # CV-122: Postgres backup/restore round-trip (no server/web build).
+  backup-smoke:
+    runs-on: ubuntu-latest
+    needs: verify
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start Postgres only
+        run: docker compose up -d postgres
+      - name: Wait for Postgres healthy
+        run: |
+          set -e
+          for i in $(seq 1 36); do
+            ps="$(docker compose ps)"
+            if echo "$ps" | grep -qE 'postgres .* \(healthy\)'; then
+              echo "postgres healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "timed out waiting for postgres"
+          docker compose ps
+          docker compose logs postgres
+          exit 1
+      - name: Seed marker and round-trip backup
+        run: |
+          set -euo pipefail
+          chmod +x scripts/backup-postgres.sh scripts/restore-postgres.sh scripts/backup-redis.sh
+          docker compose exec -T postgres \
+            psql -U corvin -d corvin -v ON_ERROR_STOP=1 \
+            -c "CREATE TABLE IF NOT EXISTS corvin_backup_smoke (id int PRIMARY KEY, note text NOT NULL);" \
+            -c "INSERT INTO corvin_backup_smoke (id, note) VALUES (1, 'cv-122-marker') ON CONFLICT (id) DO UPDATE SET note = EXCLUDED.note;"
+          DUMP="$(bash scripts/backup-postgres.sh | tail -n 1)"
+          test -f "${DUMP}"
+          docker compose exec -T postgres pg_restore -l < "${DUMP}" | grep -q corvin_backup_smoke
+          docker compose exec -T postgres \
+            psql -U corvin -d corvin -v ON_ERROR_STOP=1 \
+            -c "DROP TABLE corvin_backup_smoke;"
+          bash scripts/restore-postgres.sh "${DUMP}"
+          note="$(docker compose exec -T postgres \
+            psql -U corvin -d corvin -At -c "SELECT note FROM corvin_backup_smoke WHERE id = 1;")"
+          echo "restored note=${note}"
+          test "${note}" = "cv-122-marker"
+      - name: Optional Redis RDB backup smoke
+        run: |
+          set -euo pipefail
+          docker compose up -d redis
+          for i in $(seq 1 36); do
+            if docker compose ps | grep -qE 'redis .* \(healthy\)'; then
+              echo "redis healthy"
+              RDB="$(bash scripts/backup-redis.sh | tail -n 1)"
+              test -s "${RDB}"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "timed out waiting for redis"
+          docker compose ps
+          docker compose logs redis
+          exit 1
+      - name: Backup logs on failure
+        if: failure()
+        run: docker compose logs postgres redis
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
 
   # CV-121: Grafana must load from the optional observability profile (no play stack build).
   observability-smoke:
