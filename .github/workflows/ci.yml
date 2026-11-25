@@ -56,8 +56,22 @@ jobs:
         run: |
           set -e
           curl -sf "http://127.0.0.1:9090/-/healthy"
-          curl -sf "http://127.0.0.1:3100/ready"
-          curl -sf "http://127.0.0.1:3200/ready"
+          # Loki/Tempo may return 503 briefly while the in-memory ring forms.
+          for i in $(seq 1 36); do
+            loki_ok=0
+            tempo_ok=0
+            curl -sf "http://127.0.0.1:3100/ready" >/dev/null && loki_ok=1 || true
+            curl -sf "http://127.0.0.1:3200/ready" >/dev/null && tempo_ok=1 || true
+            echo "attempt ${i}: loki=${loki_ok} tempo=${tempo_ok}"
+            if [ "${loki_ok}" = "1" ] && [ "${tempo_ok}" = "1" ]; then
+              echo "loki and tempo ready"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "timed out waiting for Loki/Tempo"
+          docker compose --profile observability logs loki tempo
+          exit 1
       - name: Observability logs on failure
         if: failure()
         run: docker compose --profile observability logs prometheus loki tempo grafana
