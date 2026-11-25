@@ -33,7 +33,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Start observability profile
-        run: docker compose --profile observability up -d
+        # Name only profile services so Compose does not try to build server/web
+        # (sibling contexts are absent in this job).
+        run: docker compose --profile observability up -d prometheus loki tempo grafana
       - name: Wait for Grafana health
         run: |
           set -e
@@ -47,7 +49,7 @@ jobs:
           done
           echo "timed out waiting for Grafana"
           docker compose --profile observability ps
-          docker compose --profile observability logs
+          docker compose --profile observability logs prometheus loki tempo grafana
           exit 1
       - name: Curl Prometheus and Loki ready
         run: |
@@ -57,7 +59,7 @@ jobs:
           curl -sf "http://127.0.0.1:3200/ready"
       - name: Observability logs on failure
         if: failure()
-        run: docker compose --profile observability logs
+        run: docker compose --profile observability logs prometheus loki tempo grafana
       - name: Tear down observability
         if: always()
         run: docker compose --profile observability down -v
