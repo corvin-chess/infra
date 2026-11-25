@@ -1,4 +1,4 @@
-# CV-121 / ADR-015: single-process Loki for local/self-host observability profile.
+# CV-121 / ADR-015: single-process Loki for the optional observability profile.
 auth_enabled: false
 
 server:
@@ -40,7 +40,3 @@ limits_config:
 compactor:
   working_directory: /loki/compactor
   compaction_interval: 10m
-  retain_period: 168h
-
-ruler:
-  alertmanager_url: ""
