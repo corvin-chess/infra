@@ -13,7 +13,7 @@
 
 <br/>
 
-Self-hosting Compose stack for Corvin, with planned observability, backups, and load tests.
+Self-hosting Compose stack for Corvin, with an optional observability profile, planned backups, and load tests.
 
 <img src="https://capsule-render.vercel.app/api?type=rect&height=3&color=0:0b0d12,35:8fa3d9,70:c9a227,100:0b0d12" width="100%" alt="" />
 
@@ -21,7 +21,7 @@ Self-hosting Compose stack for Corvin, with planned observability, backups, and 
 
 <p align="center"><img src="https://readme-typing-svg.demolab.com?font=IBM+Plex+Mono&weight=700&size=18&color=8FA3D9&center=true&vCenter=true&width=420&height=40&duration=1&pause=1000000&letterSpacing=6px&lines=OVERVIEW" alt="Overview" /></p>
 
-This repository ships a Docker Compose stack that starts Postgres, Redis, the real [server](https://github.com/corvin-chess/server) Axum process, and the real [web](https://github.com/corvin-chess/web) play client in one command. Build contexts default to sibling checkouts `../server` and `../web` (override with `SERVER_BUILD_CONTEXT` / `WEB_BUILD_CONTEXT`). CI proves two browsers can finish a rated game on this stack with Glicko-2 rows stored. Observability Compose profile, backup and restore docs, and load-test harnesses remain Planned. No production secrets or fair-play private configuration live in this repository.
+This repository ships a Docker Compose stack that starts Postgres, Redis, the real [server](https://github.com/corvin-chess/server) Axum process, and the real [web](https://github.com/corvin-chess/web) play client in one command. Build contexts default to sibling checkouts `../server` and `../web` (override with `SERVER_BUILD_CONTEXT` / `WEB_BUILD_CONTEXT`). CI proves two browsers can finish a rated game on this stack with Glicko-2 rows stored. An optional Compose profile `observability` (ADR-015) starts Prometheus, Loki, Tempo, and Grafana for operational telemetry only (no end-user analytics). Backup and restore docs and load-test harnesses remain Planned. No production secrets or fair-play private configuration live in this repository.
 
 <img src="https://capsule-render.vercel.app/api?type=rect&height=3&color=0:0b0d12,35:8fa3d9,70:c9a227,100:0b0d12" width="100%" alt="" />
 
@@ -37,13 +37,21 @@ docker compose up --build -d
 
 Default ports bind to `127.0.0.1`: web `8080`, server `3000`, Postgres `5432`, Redis `6379`. Open `http://127.0.0.1:8080/play`. Check the server with `curl -sf http://127.0.0.1:3000/health`. Stop with `docker compose down`.
 
+Optional observability profile (Prometheus, Loki, Tempo, Grafana):
+
+```bash
+docker compose --profile observability up -d
+```
+
+Grafana listens on `http://127.0.0.1:3001` by default (`GRAFANA_PORT`). Default admin credentials are the `corvin_dev*` markers in `.env.example` (`GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD`); change them before any shared host. Confirm Grafana with `curl -sf http://127.0.0.1:3001/api/health`. Server OTel export into this stack is Planned.
+
 <img src="https://capsule-render.vercel.app/api?type=rect&height=3&color=0:0b0d12,35:8fa3d9,70:c9a227,100:0b0d12" width="100%" alt="" />
 
 <br/>
 
 <p align="center"><img src="https://readme-typing-svg.demolab.com?font=IBM+Plex+Mono&weight=700&size=18&color=8FA3D9&center=true&vCenter=true&width=420&height=40&duration=1&pause=1000000&letterSpacing=6px&lines=DEVELOPMENT" alt="Development" /></p>
 
-Edit `compose.yaml` and the Dockerfiles owned by [server](https://github.com/corvin-chess/server) and [web](https://github.com/corvin-chess/web). Copy `.env.example` to `.env` for local overrides; never commit `.env`. Observability profile wiring, backup scripts, and load-test entrypoints will be documented when those files exist. Live deploys follow maintainer workflow when a deploy CLI is already authenticated.
+Edit `compose.yaml`, configs under `observability/`, and the Dockerfiles owned by [server](https://github.com/corvin-chess/server) and [web](https://github.com/corvin-chess/web). Copy `.env.example` to `.env` for local overrides; never commit `.env`. Backup scripts and load-test entrypoints will be documented when those files exist. Live deploys follow maintainer workflow when a deploy CLI is already authenticated.
 
 <img src="https://capsule-render.vercel.app/api?type=rect&height=3&color=0:0b0d12,35:8fa3d9,70:c9a227,100:0b0d12" width="100%" alt="" />
 
@@ -56,10 +64,11 @@ Structural gates (no Docker required):
 ```bash
 node scripts/verify-readme.mjs
 node scripts/verify-compose.mjs
+node scripts/verify-observability.mjs
 node scripts/verify-m1-exit.mjs
 ```
 
-CI job `compose-smoke` builds the stack from sibling checkouts, curls server `/health` and web `/play`, seeds sessions, runs Playwright rated blitz on `:8080`, and asserts Glicko-2 rows with `node scripts/assert-ratings.mjs`. Planned restore drills and load-test runs land in later tasks.
+CI job `compose-smoke` builds the play stack from sibling checkouts, curls server `/health` and web `/play`, seeds sessions, runs Playwright rated blitz on `:8080`, and asserts Glicko-2 rows with `node scripts/assert-ratings.mjs`. CI job `observability-smoke` starts `docker compose --profile observability up -d` and curls Grafana `/api/health` until it reports database ok. Planned restore drills and load-test runs land in later tasks.
 
 <img src="https://capsule-render.vercel.app/api?type=rect&height=3&color=0:0b0d12,35:8fa3d9,70:c9a227,100:0b0d12" width="100%" alt="" />
 
@@ -67,7 +76,7 @@ CI job `compose-smoke` builds the stack from sibling checkouts, curls server `/h
 
 <p align="center"><img src="https://readme-typing-svg.demolab.com?font=IBM+Plex+Mono&weight=700&size=18&color=8FA3D9&center=true&vCenter=true&width=420&height=40&duration=1&pause=1000000&letterSpacing=6px&lines=ARCHITECTURE" alt="Architecture" /></p>
 
-`compose.yaml` runs Postgres 16 and Redis 7 with durable volumes, builds [server](https://github.com/corvin-chess/server) (migrate-on-start Axum on port 3000) and [web](https://github.com/corvin-chess/web) (nginx static play client proxying `/api` and `/ws` to the server). An optional observability profile, backup and restore scripts, and load-test harnesses are Planned. See organization ADRs and [website](https://github.com/corvin-chess/website) once docs are published.
+`compose.yaml` runs Postgres 16 and Redis 7 with durable volumes, builds [server](https://github.com/corvin-chess/server) (migrate-on-start Axum on port 3000) and [web](https://github.com/corvin-chess/web) (nginx static play client proxying `/api` and `/ws` to the server). Profile `observability` adds Prometheus, Loki, Tempo, and Grafana with provisioning under `observability/` (committed Corvin overview dashboard). Backup and restore scripts and load-test harnesses are Planned. See organization ADRs and [website](https://github.com/corvin-chess/website) once docs are published.
 
 <img src="https://capsule-render.vercel.app/api?type=rect&height=3&color=0:0b0d12,35:8fa3d9,70:c9a227,100:0b0d12" width="100%" alt="" />
 
@@ -82,7 +91,7 @@ CI job `compose-smoke` builds the stack from sibling checkouts, curls server `/h
 | CI verify gate | Built |
 | Docker Compose stack | Built |
 | M1 play stack | Built |
-| Observability profile | Planned |
+| Observability profile | Built |
 | Backup and restore | Planned |
 | Load tests | Planned |
 | Implementation | Planned |
